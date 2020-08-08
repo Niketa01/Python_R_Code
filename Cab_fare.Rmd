@@ -1,0 +1,182 @@
+getwd()
+#Setting working directory
+setwd("C:/Users/Niketa Mittal/Downloads")
+
+#installing required packages
+install.packages(c("ggplot2","corrplot","e1071","units","lubridate","DMwR","Hmisc","rpart","randomForest"))
+
+#reading the train data file
+df=read.csv("train_cab.csv",header=T)
+str(df)
+summary(df)
+
+#checking first 10 rows
+head(df,10)
+
+#checking the type of variables
+class(df$fare_amount)
+class(df$pickup_datetime)
+class(df$pickup_longitude)
+class(df$passenger_count)
+
+#converting passenger_count to integer
+df$passenger_count=as.integer(df$passenger_count)
+
+#removing rows where pickup and drop locations is same
+df=subset(df,(df$pickup_longitude!=df$dropoff_longitude & df$pickup_latitude!=df$dropoff_latitude))
+str(df)
+
+#checking count of NA in variables
+sapply(df, function(x) sum(is.na(x)))
+
+#checking count of 0 in variables
+sapply(df, function(x) sum(x==0))
+
+#function to impute missing values with mode
+impute_mode=function(x){
+            x_uniq=unique(x)
+            x_uniq[which.max(tabulate(match(x,x_uniq)))]
+}
+
+#applying mode imputation function to passenger_count
+df$passenger_count[is.na(df$passenger_count)]=impute_mode(df$passenger_count)
+#checking count of NA in variables
+sapply(df, function(x) sum(is.na(x)))
+
+#imputing NA in fare_amount with mean
+df$fare_amount[is.na(df$fare_amount)]=mean(df$fare_amount, na.rm=T)
+
+#imputing 0 in pickup and dropoff coordinates with mean
+df$pickup_longitude[df$pickup_longitude==0]=mean(df$pickup_longitude, na.rm=T)
+df$pickup_latitude[df$pickup_latitude==0]=mean(df$pickup_latitude, na.rm=T)
+df$dropoff_longitude[df$dropoff_longitude==0]=mean(df$dropoff_longitude, na.rm=T)
+df$dropoff_latitude[df$dropoff_latitude==0]=mean(df$dropoff_latitude, na.rm=T)
+
+#removing rows where fare_amount<0 or >100
+df=subset(df,!(df$fare_amount<0 | df$fare_amount>100))
+
+#removing rows where passenger_count>7
+df=subset(df,(df$passenger_count<7))
+
+#checking count of 0 in variables
+sapply(df, function(x) sum(x==0))
+
+#imputing 0 in fare_amount and passenger_count with mean and mode respectively
+df$fare_amount[df$fare_amount==0]=mean(df$fare_amount, na.rm=T)
+df$passenger_count[df$passenger_count==0]=impute_mode(df$passenger_count)
+#checking count of 0 in variables
+sapply(df, function(x) sum(x==0))
+
+#calculating distance between pickup and dropoff locations and creating new variable Distance of that value
+library(units)
+
+dist_calc= function(p_lo, p_la, d_lo, d_la){
+            6371.01*acos(sin(as_units(p_la,"radians"))*sin(as_units(d_la,"radians"))) + cos(as_units(p_la,"radians"))*cos(as_units(d_la,"radians"))*cos(as_units(p_lo,"radians")-as_units(d_lo,"radians"))
+}
+
+df$Distance=mapply(dist_calc,df$pickup_longitude, df$pickup_latitude, df$dropoff_longitude, df$dropoff_latitude)
+
+#converting pickup_datetime to integer
+library(lubridate)
+
+df$pickup_datetime=as.integer(as_datetime(df$pickup_datetime,tz="UTC"))
+
+#creating correlation matrix and plotting heatmap of that
+library("corrplot")
+
+corr_matrix=cor(df, method='spearman')
+corrplot(corr_matrix)
+
+#dividing data into train and test
+df_index=sample(1:nrow(df), 0.8*nrow(df))
+train_df=df[df_index,]
+test_df=df[-df_index,]
+
+#function to calculate MAPE value of each model
+MAPE = function(y, yhat){
+  mean(abs((y - yhat)/y*100))
+}
+
+library(DMwR)
+
+#Linear Regression model
+model_lm=lm(fare_amount~. , data=train_df)
+summary(model_lm)
+
+predicts=predict(model_lm,test_df)
+
+MAPE(test_df[,1], predicts)
+
+regr.eval(test_df[1,],predicts,stats=c('mae','rmse','mape'))
+
+#Decision tree model
+library(rpart)
+model_dt=rpart(fare_amount~. , data=train_df, method="anova")
+summary(model_dt)
+
+predicts1=predict(model_dt,test_df)
+
+MAPE(test_df[,1], predicts1)
+
+regr.eval(test_df[1,],predicts1,stats=c('mae','rmse','mape'))
+
+#Support Vector Machine model
+library(e1071)
+
+model_svr=svm(fare_amount~. , data=train_df)
+summary(model_svr)
+
+predicts2=predict(model_svr,test_df)
+
+MAPE(test_df[,1], predicts2)
+
+regr.eval(test_df[1,],predicts2,stats=c('mae','rmse','mape'))
+
+#K-Nearest Neighbors Regression model
+library(class)
+model_knn=knn(train_df[,2:8],test_df[,2:8],train_df$fare_amount,k=1)
+summary(model_knn)
+
+predicts3=as.numeric(as.character((model_knn)))
+
+MAPE(test_df[,1], predicts3)
+
+regr.eval(test_df[1,],predicts3,stats=c('mae','rmse','mape'))
+
+#Random Forest Regression model
+library(randomForest)
+model_rf=randomForest(fare_amount~. , train_df, ntree=500)
+summary(model_rf)
+
+predicts4=predict(model_rf,test_df)
+
+MAPE(test_df[,1], predicts4)
+
+regr.eval(test_df[1,],predicts4,stats=c('mae','rmse','mape'))
+
+#Testing on original Test set
+#reading test file
+df_test=read.csv("test.csv",header=T)
+head(df_test,10)
+
+#converting pickup_datetime to integer
+df_test$pickup_datetime=as.integer(as_datetime(df_test$pickup_datetime,tz="UTC"))
+str(df_test)
+
+#calculating distance between pickup and dropoff locations and creating new variable Distance of that value
+df_test$Distance=mapply(dist_calc,df_test$pickup_longitude, df_test$pickup_latitude, df_test$dropoff_longitude, df_test$dropoff_latitude)
+
+head(df_test,10)
+
+#applying Random forest algorirthmn
+model_rf_test=randomForest(fare_amount~. , df, ntree=500)
+summary(model_rf_test)
+
+#saving the fare_amount predictions in dataframe
+df_test$fare_amount_predict=predict(model_rf_test,df_test)
+
+head(df_test,10)
+
+#saving the entire dataframe in csv file
+write.csv(df_test,"cab_fare_results_R.csv",row.names=F)
+

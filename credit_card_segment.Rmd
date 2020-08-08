@@ -1,0 +1,126 @@
+getwd()
+setwd("C:/Users/Niketa Mittal/Downloads")
+
+install.packages(c('ggplot2','corrplot','cluster'))
+
+#reading training data set
+df=read.csv("credit-card-data.csv",header=T)
+str(df)
+summary(df)
+
+head(df,10)
+
+#checking NA values
+sapply(df, function(x) sum(is.na(x)))
+
+#imputing null values with mean
+df$CREDIT_LIMIT[is.na(df$CREDIT_LIMIT)]=mean(df$CREDIT_LIMIT,na.rm=T)
+df$MINIMUM_PAYMENTS[is.na(df$MINIMUM_PAYMENTS)]=mean(df$MINIMUM_PAYMENTS, na.rm=T)
+
+#checking NA values
+sapply(df, function(x) sum(is.na(x)))
+
+#calculating KPIs: Monthly Average Purchase and Cash Advance Amount
+df$Mnthly_avg_purchase=df$PURCHASES/df$TENURE
+df$Cash_adv_amount=df$CASH_ADVANCE/df$TENURE
+
+#declaring function to find Purchase Type
+purchaseType=function(oneoff,installment){
+            if(oneoff==0&installment==0){
+                    return ("None")
+            }
+            else if(oneoff>0&installment==0){
+                    return ("One-Off")
+            }
+            else if(oneoff==0&installment>0){
+                    return ("Installment")
+            }
+            else
+                    return ("Both")
+            
+}
+
+#adding purchaseType column to dataframe
+df$Purchase_type=mapply(purchaseType,df$ONEOFF_PURCHASES,df$INSTALLMENTS_PURCHASES)
+head(df,10)
+
+#calculating KPIs: Limit usage and Payment-minimum payment ratio
+df$Limit_Usage= df$BALANCE/df$CREDIT_LIMIT
+df$pay_minpay_ratio=df$PAYMENTS/df$MINIMUM_PAYMENTS
+
+head(df,10)
+
+#dropping columns from which KPIs have been calculated
+df=subset(df,select= -c(CUST_ID,PURCHASES,CASH_ADVANCE,ONEOFF_PURCHASES,INSTALLMENTS_PURCHASES,BALANCE,CREDIT_LIMIT,PAYMENTS,MINIMUM_PAYMENTS))
+head(df,10)
+
+summary(df)
+
+library(ggplot2)
+
+#plotting various KPIs as per their Purchase type
+ggplot(data=df, aes(x=Purchase_type,y=Cash_adv_amount, fill=Purchase_type)) +geom_bar(stat="identity")
+
+ggplot(data=df, aes(x=Purchase_type,y=Limit_Usage, fill=Purchase_type)) +geom_bar(stat="identity")
+
+ggplot(data=df, aes(x=Purchase_type,y=pay_minpay_ratio, fill=Purchase_type)) +geom_bar(stat="identity")
+
+ggplot(data=df, aes(x=Purchase_type,y=Mnthly_avg_purchase, fill=Purchase_type)) +geom_bar(stat="identity")
+
+#converting purchase type to numeric
+df$Purchase_type=factor(df$Purchase_type)
+df$Purchase_type=as.numeric(df$Purchase_type)
+head(df,10)
+
+library(corrplot)
+
+#mapping correlation among variables
+corr_matrix=cor(df,method='spearman')
+corrplot(corr_matrix, mar=c(3,3,3,3))
+
+#scaling the variables in dataframe
+df_new=scale(df)
+head(df,10)
+
+#trying to find the best number of useful variables
+pcaDF=prcomp(df_new,center=TRUE,scale.=TRUE)
+summary(pcaDF)
+
+plot(pcaDF)
+
+#storing PCA values in new data frame
+df_credit=pcaDF$x
+
+str(df_credit)
+
+#keeping only 8 variables as they explain 88% of data
+df_credit=df_credit[,1:8]
+
+str(df_credit)
+
+#Elbow function to find number of clusters to use
+calc_elbow = function(i){
+              clusters=kmeans(df_new,i)
+              return (clusters$tot.withinss)
+}
+
+n=10
+sills=sapply(2:n,calc_elbow)
+
+plot(2:n,sills,type='b')
+
+#kmeans function on the data
+c=kmeans(df_credit,5)
+print(c$cluster)
+
+#assigning cluster id to each data point in data frame
+df$Cluster_id=c$cluster
+
+head(df,10)
+
+head(df_credit,10)
+
+#plotting cluster points
+library(cluster)
+clusplot(df_credit,c$cluster,col.p=c$cluster,labels=5)
+
